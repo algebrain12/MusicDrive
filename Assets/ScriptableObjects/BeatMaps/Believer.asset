@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7230ddc21ed60b2449e887513b1e3564, type: 3}
+  m_Name: Believer
+  m_EditorClassIdentifier: 
+  song: {fileID: 8300000, guid: 2544cb77c66da9d4896ac32a245efec2, type: 3}
+  songName: Believer
+  bpm: 90
+  minimumBeatSpacing: 0.5
+  onsetSensitivity: 0.2
+  beats: []
+  perfectWindowMs: 50
+  goodWindowMs: 100
+  okWindowMs: 150
