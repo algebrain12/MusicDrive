@@ -4,6 +4,7 @@ using UnityEngine;
 
 public class GameInput : MonoBehaviour {
     public static GameInput Instance { get; private set; }
+    public bool IsPaused = false;
 
     private MovementControls playerInputActions;
 
@@ -20,6 +21,7 @@ public class GameInput : MonoBehaviour {
 
     public Vector2 getMoveDir()
     {
+        if(IsPaused)return Vector2.zero;
         return playerInputActions.PlayerActions.Movement.ReadValue<Vector2>();
     }
 }

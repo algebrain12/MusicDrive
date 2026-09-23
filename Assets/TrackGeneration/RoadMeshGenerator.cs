@@ -11,7 +11,7 @@ public class RoadMeshGenerator : MonoBehaviour
 
     [Header("Road Settings")]
     public float roadWidth = 10f;
-    public int samples = 500;   
+    public int samples = 500;
 
     [Header("SpawnPoint")]
     public int samplepoint = 0;
@@ -19,6 +19,26 @@ public class RoadMeshGenerator : MonoBehaviour
     public float startGridLaneOffset = 3f;
     public Vector3 SpawnPoint { get; private set; }
     public Vector3 SpawnForward { get; private set; }
+    public Vector3 SpawnUp { get; private set; }
+
+    [Header("Start / Finish Line")]
+    [Tooltip("Prefab for the start/finish line marker. Should be a flat plane with no collider.")]
+    public GameObject startFinishLinePrefab;
+
+    [Tooltip("If true, the spawned line's local X scale is set so it spans the full road width.")]
+    public bool scaleLineToRoadWidth = true;
+
+    [Tooltip("How many world units wide the prefab is when its local scale.x = 1 (Unity's default Plane primitive is 10). Used to auto-fit it to roadWidth.")]
+    public float prefabBaseWidth = 10f;
+
+    [Tooltip("Small lift above the road surface so the line doesn't z-fight with the road mesh.")]
+    public float startLineHeightOffset = 0.02f;
+
+    [Tooltip("Extra rotation on top of the track-aligned rotation, in case your prefab's default axes don't already match forward/up.")]
+    public Vector3 startLineRotationOffset = Vector3.zero;
+
+    private GameObject spawnedStartFinishLine;
+
     public void GenerateRoad()
     {
         Mesh mesh = new Mesh();
@@ -39,12 +59,15 @@ public class RoadMeshGenerator : MonoBehaviour
                 (Vector3)splineContainer.EvaluateTangent(t);  
 
             tangent.Normalize();  //mag = 1
+            Vector3 splineUp = (Vector3)splineContainer.EvaluateUpVector(t);
+            splineUp.Normalize();
+
             if (i == samplepoint % samples)
             {
                 SpawnPoint = center;
                 SpawnForward = tangent;
+                SpawnUp = splineUp;
             }
-            Vector3 splineUp = (Vector3)splineContainer.EvaluateUpVector(t);  
             Vector3 right =
                 Vector3.Cross(splineUp, tangent).normalized;  
 
@@ -101,9 +124,55 @@ public class RoadMeshGenerator : MonoBehaviour
 
         mc.sharedMesh = null;
         mc.sharedMesh = mesh;
+
+        PlaceStartFinishLine();
+
         if (carSpawner != null)
         {
             carSpawner.Spawn(SpawnPoint,SpawnForward);
+        }
+    }
+
+    // Instantiates (or repositions, on regeneration) the start/finish line prefab
+    // at the players' spawn point, aligned flat across the road.
+    private void PlaceStartFinishLine()
+    {
+        if (startFinishLinePrefab == null)
+        {
+            return;
+        }
+
+        Vector3 position = SpawnPoint + SpawnUp * startLineHeightOffset;
+        Quaternion rotation = Quaternion.LookRotation(SpawnForward, SpawnUp) * Quaternion.Euler(startLineRotationOffset);
+
+        if (spawnedStartFinishLine == null)
+        {
+            spawnedStartFinishLine = Instantiate(startFinishLinePrefab, position, rotation, transform);
+
+            // Defensive: strip any collider that might have been left on the prefab,
+            // since the line should never physically interact with the cars.
+            foreach (Collider col in spawnedStartFinishLine.GetComponentsInChildren<Collider>())
+            {
+                if (Application.isPlaying)
+                {
+                    Destroy(col);
+                }
+                else
+                {
+                    DestroyImmediate(col);
+                }
+            }
+        }
+        else
+        {
+            spawnedStartFinishLine.transform.SetPositionAndRotation(position, rotation);
+        }
+
+        if (scaleLineToRoadWidth && prefabBaseWidth > 0f)
+        {
+            Vector3 scale = spawnedStartFinishLine.transform.localScale;
+            scale.x = roadWidth / prefabBaseWidth;
+            spawnedStartFinishLine.transform.localScale = scale;
         }
     }
 

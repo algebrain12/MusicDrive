@@ -21,9 +21,15 @@ public class MapScatterer : MonoBehaviour
     [Tooltip("Parent transform to keep your Hierarchy clean.")]
     public Transform containerParent;
 
-    [Header("3D Scatter Area Bounds")]
+    [Header("3D Scatter Area Bounds (Outer)")]
     public Vector3 mapBoundsMin = new Vector3(-50f, -50f, -50f);
     public Vector3 mapBoundsMax = new Vector3(50f, 50f, 50f);
+
+    [Header("Exclusion Zone Bounds (Inner)")]
+    [Tooltip("No objects will spawn inside this inner cuboid. Must be fully contained within the outer bounds above.")]
+    public Vector3 innerBoundsMin = new Vector3(-10f, -10f, -10f);
+    [Tooltip("No objects will spawn inside this inner cuboid. Must be fully contained within the outer bounds above.")]
+    public Vector3 innerBoundsMax = new Vector3(10f, 10f, 10f);
     
     [Header("Spacing & Placement")]
     [Tooltip("Minimum 3D distance between placed objects.")]
@@ -64,7 +70,12 @@ public class MapScatterer : MonoBehaviour
             return;
         }
 
-        // 1. Generate 3D Poisson points in space (X, Y, Z)
+        if (!ValidateInnerBounds())
+        {
+            Debug.LogWarning("Inner exclusion bounds are not fully contained within the outer map bounds. Clamping automatically.");
+        }
+
+        // 1. Generate 3D Poisson points in space (X, Y, Z), skipping the inner exclusion cuboid
         List<Vector3> points = Generate3DPoissonPoints();
 
         // 2. Instantiate prefabs at generated positions
@@ -79,7 +90,12 @@ public class MapScatterer : MonoBehaviour
                 ? Quaternion.Euler(Random.Range(0f, 360f), Random.Range(0f, 360f), Random.Range(0f, 360f)) 
                 : Quaternion.identity;
 
-            GameObject newObj = Instantiate(selectedPrefab, point, rotation);
+            GameObject newObj = Instantiate(
+                selectedPrefab,
+                point,
+                rotation,
+                transform
+            );
 
             // Random Scale
             Vector3 randomScale = new Vector3(
@@ -90,15 +106,15 @@ public class MapScatterer : MonoBehaviour
             newObj.transform.localScale = randomScale;
 
             // Parent organization
-            if (containerParent != null)
+            /*if (containerParent != null)
             {
                 newObj.transform.SetParent(containerParent);
-            }
+            }*/
 
             spawnedCount++;
         }
 
-        Debug.Log($"Successfully scattered {spawnedCount} objects throughout 3D space!");
+        Debug.Log($"Successfully scattered {spawnedCount} objects throughout 3D space (outside the inner exclusion zone)!");
     }
 
     [ContextMenu("Clear Scattered Objects")]
@@ -119,7 +135,25 @@ public class MapScatterer : MonoBehaviour
         }
     }
 
-    // Algorithmic Core: 3D Poisson Disc Sampling
+    // Checks that the inner bounds sit fully inside the outer bounds; returns false if clamping was needed.
+    private bool ValidateInnerBounds()
+    {
+        Vector3 clampedMin = Vector3.Max(innerBoundsMin, mapBoundsMin);
+        Vector3 clampedMax = Vector3.Min(innerBoundsMax, mapBoundsMax);
+
+        bool wasValid = clampedMin == innerBoundsMin && clampedMax == innerBoundsMax
+                         && innerBoundsMin.x <= innerBoundsMax.x
+                         && innerBoundsMin.y <= innerBoundsMax.y
+                         && innerBoundsMin.z <= innerBoundsMax.z;
+
+        // Ensure min <= max after clamping too
+        innerBoundsMin = Vector3.Min(clampedMin, clampedMax);
+        innerBoundsMax = Vector3.Max(clampedMin, clampedMax);
+
+        return wasValid;
+    }
+
+    // Algorithmic Core: 3D Poisson Disc Sampling with an inner exclusion cuboid
     private List<Vector3> Generate3DPoissonPoints()
     {
         Vector3 regionSize = mapBoundsMax - mapBoundsMin;
@@ -133,8 +167,23 @@ public class MapScatterer : MonoBehaviour
         List<Vector3> points = new List<Vector3>();
         List<Vector3> spawnPoints = new List<Vector3>();
 
-        // Center seed
-        spawnPoints.Add(regionSize / 2f);
+        // Inner exclusion cuboid, converted into the same local (0..regionSize) space used below
+        Vector3 innerMinLocal = innerBoundsMin - mapBoundsMin;
+        Vector3 innerMaxLocal = innerBoundsMax - mapBoundsMin;
+
+        // Seed the queue with several valid points so growth can reach every side of the
+        // exclusion zone (a single center seed can fail or get stuck if it starts inside
+        // the inner cuboid, or if the inner cuboid splits the region into separate pockets).
+        foreach (Vector3 seed in GetSeedPoints(regionSize, innerMinLocal, innerMaxLocal))
+        {
+            spawnPoints.Add(seed);
+        }
+
+        if (spawnPoints.Count == 0)
+        {
+            Debug.LogWarning("Could not find any valid seed point outside the inner exclusion cuboid. No objects will be scattered.");
+            return points;
+        }
 
         while (spawnPoints.Count > 0)
         {
@@ -148,7 +197,7 @@ public class MapScatterer : MonoBehaviour
                 Vector3 dir = Random.onUnitSphere;
                 Vector3 candidate = spawnCentre + dir * Random.Range(minDistance, 2f * minDistance);
 
-                if (IsValid(candidate, regionSize, cellSize, minDistance, points, grid))
+                if (IsValid(candidate, regionSize, cellSize, minDistance, points, grid, innerMinLocal, innerMaxLocal))
                 {
                     points.Add(candidate);
                     spawnPoints.Add(candidate);
@@ -178,12 +227,75 @@ public class MapScatterer : MonoBehaviour
         return points;
     }
 
-    private bool IsValid(Vector3 candidate, Vector3 regionSize, float cellSize, float radius, List<Vector3> points, int[,,] grid)
+    // Finds a handful of starting points (region center plus outer corners) that lie
+    // outside the inner exclusion cuboid, so the Poisson growth has coverage on every
+    // side of the exclusion zone.
+    private List<Vector3> GetSeedPoints(Vector3 regionSize, Vector3 innerMin, Vector3 innerMax)
+    {
+        List<Vector3> seeds = new List<Vector3>();
+        float epsilon = 0.001f;
+
+        Vector3 center = regionSize / 2f;
+        if (!IsInsideCuboid(center, innerMin, innerMax))
+        {
+            seeds.Add(center);
+        }
+
+        // The 8 corners of the outer region (slightly inset so they stay < regionSize).
+        float[] xs = { epsilon, regionSize.x - epsilon };
+        float[] ys = { epsilon, regionSize.y - epsilon };
+        float[] zs = { epsilon, regionSize.z - epsilon };
+
+        foreach (float x in xs)
+        {
+            foreach (float y in ys)
+            {
+                foreach (float z in zs)
+                {
+                    Vector3 corner = new Vector3(x, y, z);
+                    if (!IsInsideCuboid(corner, innerMin, innerMax))
+                    {
+                        seeds.Add(corner);
+                    }
+                }
+            }
+        }
+
+        // Fallback: if every corner and the center were somehow inside the inner cuboid
+        // (e.g. inner bounds misconfigured to match outer bounds), try random sampling.
+        if (seeds.Count == 0)
+        {
+            for (int i = 0; i < 100; i++)
+            {
+                Vector3 candidate = new Vector3(
+                    Random.Range(0f, regionSize.x),
+                    Random.Range(0f, regionSize.y),
+                    Random.Range(0f, regionSize.z)
+                );
+
+                if (!IsInsideCuboid(candidate, innerMin, innerMax))
+                {
+                    seeds.Add(candidate);
+                    break;
+                }
+            }
+        }
+
+        return seeds;
+    }
+
+    private bool IsValid(Vector3 candidate, Vector3 regionSize, float cellSize, float radius, List<Vector3> points, int[,,] grid, Vector3 innerMin, Vector3 innerMax)
     {
         if (candidate.x >= 0 && candidate.x < regionSize.x &&
             candidate.y >= 0 && candidate.y < regionSize.y &&
             candidate.z >= 0 && candidate.z < regionSize.z)
         {
+            // Reject anything that falls inside the inner exclusion cuboid
+            if (IsInsideCuboid(candidate, innerMin, innerMax))
+            {
+                return false;
+            }
+
             int cellX = (int)(candidate.x / cellSize);
             int cellY = (int)(candidate.y / cellSize);
             int cellZ = (int)(candidate.z / cellSize);
@@ -218,12 +330,25 @@ public class MapScatterer : MonoBehaviour
         return false;
     }
 
+    private bool IsInsideCuboid(Vector3 point, Vector3 boundsMin, Vector3 boundsMax)
+    {
+        return point.x >= boundsMin.x && point.x <= boundsMax.x &&
+               point.y >= boundsMin.y && point.y <= boundsMax.y &&
+               point.z >= boundsMin.z && point.z <= boundsMax.z;
+    }
+
     private void OnDrawGizmosSelected()
     {
-        // Draw the full 3D bounding box in scene view
+        // Draw the outer bounding box in scene view
         Gizmos.color = Color.cyan;
-        Vector3 center = (mapBoundsMin + mapBoundsMax) / 2f;
-        Vector3 size = mapBoundsMax - mapBoundsMin;
-        Gizmos.DrawWireCube(center, size);
+        Vector3 outerCenter = (mapBoundsMin + mapBoundsMax) / 2f;
+        Vector3 outerSize = mapBoundsMax - mapBoundsMin;
+        Gizmos.DrawWireCube(outerCenter, outerSize);
+
+        // Draw the inner exclusion cuboid in a different color
+        Gizmos.color = Color.red;
+        Vector3 innerCenter = (innerBoundsMin + innerBoundsMax) / 2f;
+        Vector3 innerSize = innerBoundsMax - innerBoundsMin;
+        Gizmos.DrawWireCube(innerCenter, innerSize);
     }
 }

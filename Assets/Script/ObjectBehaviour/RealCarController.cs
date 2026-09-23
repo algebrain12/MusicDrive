@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
+using Photon.Pun;
 using UnityEngine;
 
-public class RealCarController : MonoBehaviour {
+public class RealCarController : MonoBehaviourPun {
 
     public enum Axel {
         Front,
@@ -27,6 +28,7 @@ public class RealCarController : MonoBehaviour {
 
     [Header("References")]
     [SerializeField] private List<Wheel> wheelsList;
+    [SerializeField] private NitroSystem nitroSystem;
 
     private float moveInput;
     private float steerInput;
@@ -36,6 +38,12 @@ public class RealCarController : MonoBehaviour {
 
     private void Awake() {
         carRb = GetComponent<Rigidbody>();
+
+        // NitroSystem lives on the same car; this is just a fallback in
+        // case the field wasn't dragged in on the prefab.
+        if (nitroSystem == null) {
+            nitroSystem = GetComponent<NitroSystem>();
+        }
     }
 
     private void Start() {
@@ -43,17 +51,32 @@ public class RealCarController : MonoBehaviour {
         GameEvents.OnNitroLayerChanged += ChangeMaxSpeed;
     }
 
-    private void ChangeMaxSpeed(int combo)
+    private void OnDestroy() {
+        GameEvents.OnNitroLayerChanged -= ChangeMaxSpeed;
+    }
+
+    private void ChangeMaxSpeed(int layer)
     {
-        if(combo > 5)return;
-        maxSpeed = (combo+1)*10000f;
+        if(layer > 5) return;
+        maxSpeed = (layer+1)*10000f;
     }
 
     private void Update() {
+        // Ownership guard (kept from the earlier multiplayer fix): this
+        // client's input must never drive a car it doesn't own.
+        if (!photonView.IsMine) {
+            return;
+        }
+
         GetInput();
     }
 
-    private void FixedUpdate() {     
+    private void FixedUpdate() {
+        if (!photonView.IsMine) {
+            AnimateWheels();
+            return;
+        }
+
         Move();
         Steer();
         AnimateWheels();
@@ -73,6 +96,13 @@ public class RealCarController : MonoBehaviour {
             transform.forward.normalized
         );
 
+        // CHANGED: NitroSystem.ActiveForce (the per-layer bonus torque) was
+        // being computed but never read anywhere. It's now added on top of
+        // the base motor torque while nitro is active, so combo actually
+        // makes the car pull harder, not just raise its speed cap.
+        float nitroBonus = nitroSystem != null ? nitroSystem.ActiveForce : 0f;
+        float appliedMotorTorque = motorTorque + nitroBonus;
+
         foreach (Wheel wheel in wheelsList) {
 
             if (wheel.axel == Axel.Back) {
@@ -86,7 +116,7 @@ public class RealCarController : MonoBehaviour {
                 }
                 else if (Mathf.Abs(currentSpeed) < maxSpeed) {
                     wheel.wheelCollider.brakeTorque = 0;                          
-                    wheel.wheelCollider.motorTorque = moveInput * motorTorque;
+                    wheel.wheelCollider.motorTorque = moveInput * appliedMotorTorque;
                 }
                 else {
                     wheel.wheelCollider.motorTorque = 0;

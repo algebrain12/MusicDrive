@@ -15,6 +15,8 @@ public class BeatClock : MonoBehaviour
     private double _songStartDsp;        
     private bool   _isPlaying    = false;
 
+    private float currDelay = 0f;
+
     
 
   
@@ -30,7 +32,7 @@ public class BeatClock : MonoBehaviour
             yield return GenerateBeatMap();
         }
 
-        StartSong();
+        //StartSong();
     }
 
     IEnumerator GenerateBeatMap()
@@ -228,7 +230,7 @@ public class BeatClock : MonoBehaviour
 
         // Capture the exact dspTime of song start
         // Schedule playback 0.1s in future for precision
-        double startDelay    = 0.1;
+        double startDelay    = currDelay;
         _songStartDsp        = AudioSettings.dspTime + startDelay;
         _nextBeatIndex       = 0;
         _nextApproachIndex   = 0;
@@ -244,6 +246,7 @@ public class BeatClock : MonoBehaviour
     // ── Update: fire beat events at the right moment ─────────
     void Update()
     {
+        if(!_isPlaying)currDelay+=Time.deltaTime;
         if (!_isPlaying) return;
         if (beatMap == null || beatMap.beats == null || beatMap.beats.Length == 0) return;
         // Current position in the song (in seconds)

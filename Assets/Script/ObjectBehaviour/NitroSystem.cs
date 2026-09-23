@@ -33,6 +33,24 @@ public class NitroSystem : MonoBehaviour {
         220f
     };
 
+    [Header("Car Emission Per Layer")]
+    // Renderer that holds the car's material. We pull an *instance* from it
+    // (via .material) rather than editing a Material asset directly, so we
+    // never permanently mutate the shared material asset in the editor.
+    [SerializeField] private Renderer carRenderer;
+    [SerializeField] private Color emissionBaseColor = Color.cyan;
+    [SerializeField] private float[] emissionIntensity = new float[6] {
+        0f,   // Layer 0 — off
+        1f,   // Layer 1
+        2f,   // Layer 2
+        3.5f, // Layer 3
+        5f,   // Layer 4
+        7f    // Layer 5 — max
+    };
+
+    private static readonly int EmissionColorId = Shader.PropertyToID("_EmissionColor");
+    private Material _carMaterial;
+
     // ── State ──────────────────────────────────────────────────
     private int   _activeLayer = 0;
     private float _nitroTimer  = 0f;
@@ -48,6 +66,31 @@ public class NitroSystem : MonoBehaviour {
         if (speedCapKph == null || speedCapKph.Length == 0) return 90f;
         int index = Mathf.Clamp(layer, 0, speedCapKph.Length - 1);
         return Mathf.Max(1f, speedCapKph[index]);
+    }
+
+    public float GetEmissionIntensity(int layer) {
+        if (emissionIntensity == null || emissionIntensity.Length == 0) return 0f;
+        int index = Mathf.Clamp(layer, 0, emissionIntensity.Length - 1);
+        return emissionIntensity[index];
+    }
+
+    // ── Setup ──────────────────────────────────────────────────
+    private void Awake()
+    {
+        if (carRenderer != null)
+        {
+            Material[] materials = carRenderer.materials;
+
+            if (materials.Length > 1)
+            {
+                _carMaterial = materials[1]; // Second material
+                _carMaterial.EnableKeyword("_EMISSION");
+            }
+            else
+            {
+                Debug.LogWarning("Car Renderer does not have a second material!");
+            }
+        }
     }
 
     // ── Event wiring ───────────────────────────────────────────
@@ -70,10 +113,12 @@ public class NitroSystem : MonoBehaviour {
 
     // ── Combo handler ──────────────────────────────────────────
     private void HandleComboChanged(int newCombo) {
+        UpdateCarEmission(_activeLayer);
         if (newCombo == 0) {
             DeactivateNitro();
             return;
         }
+        
 
         // Clamp: combo 6, 7, 8... all stay at layer 5
         int newLayer = Mathf.Clamp(newCombo, 1, 5);
@@ -82,13 +127,24 @@ public class NitroSystem : MonoBehaviour {
         _nitroTimer  = nitroDurationSec;   // refresh timer on every hit
         _nitroActive = true;
 
+        
+
         GameEvents.OnNitroLayerChanged?.Invoke(_activeLayer);
+    }
+
+    private void UpdateCarEmission(int layer) {
+        if (_carMaterial == null) return;
+
+        float intensity = GetEmissionIntensity(layer);
+        _carMaterial.SetColor(EmissionColorId, emissionBaseColor * intensity);
     }
 
     private void DeactivateNitro() {
         _activeLayer = 0;
         _nitroTimer  = 0f;
         _nitroActive = false;
+
+        UpdateCarEmission(0);
 
         GameEvents.OnNitroLayerChanged?.Invoke(0);
         GameEvents.OnNitroTick?.Invoke(0f);

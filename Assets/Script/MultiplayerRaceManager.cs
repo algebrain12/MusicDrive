@@ -2,10 +2,12 @@ using ExitGames.Client.Photon;
 using Photon.Pun;
 using Photon.Realtime;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class MultiplayerRaceManager : MonoBehaviour
 {
     public RandomTrackGenerator trackGenerator;
+    public Button buttonReset;
     public RoadMeshGenerator roadMeshGenerator;
     public GameObject playerPrefab;
     public bool startAutomatically = true;
@@ -52,6 +54,7 @@ public class MultiplayerRaceManager : MonoBehaviour
         roadMeshGenerator.GetSpawnPose(playerIndex, out Vector3 spawnPosition, out Quaternion spawnRotation);
 
         GameObject player = PhotonNetwork.Instantiate(playerPrefab.name, spawnPosition, spawnRotation);
+        player.GetComponent<transformCorrector>().Init(buttonReset);
         PlayerSetup setup = player.GetComponent<PlayerSetup>();
         if (setup != null)
         {

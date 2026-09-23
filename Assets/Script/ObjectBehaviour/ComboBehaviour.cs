@@ -5,7 +5,7 @@ using UnityEngine;
 public class ComboSystem : MonoBehaviour
 {
     [Header("Combo Settings")]
-    public float comboLifeMs = 65000000f;
+    public float comboLifeMs = 3f;
 
     private int   _combo = 0;
     private float _lifeTimer = 0f;
@@ -24,10 +24,12 @@ public class ComboSystem : MonoBehaviour
         GameEvents.OnMiss -= HandleMiss;
     }
 
-    void Start()
-    {
-        OnEnable();
-    }
+    // CHANGED (fix): removed the manual OnEnable() call that used to live
+    // here. Unity already invokes OnEnable() once automatically before
+    // Start() runs, so calling it again subscribed HandleHit/HandleMiss
+    // twice — every hit was bumping the combo by 2 instead of 1, which
+    // cascaded into NitroSystem picking the wrong layer and everything
+    // downstream (torque, speed cap, FOV) reacting incorrectly.
 
     void Update()
     {
@@ -44,7 +46,7 @@ public class ComboSystem : MonoBehaviour
     void HandleHit(HitRes result, float errorMs)
     {
         _combo++;
-        _lifeTimer = comboLifeMs / 1000f;
+        _lifeTimer = comboLifeMs;
         _comboIsActive = true;
 
         GameEvents.OnComboChanged?.Invoke(_combo);
