@@ -40,7 +40,7 @@ public class RealCarController : MonoBehaviour {
 
     private void Start() {
         carRb.centerOfMass = centerOfMass;
-        GameEvents.OnComboChanged += ChangeMaxSpeed;
+        GameEvents.OnNitroLayerChanged += ChangeMaxSpeed;
     }
 
     private void ChangeMaxSpeed(int combo)

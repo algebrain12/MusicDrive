@@ -57,7 +57,24 @@ public class NetworkLobbyManager : MonoBehaviourPunCallbacks
     private void Awake()
     {
         PhotonNetwork.AutomaticallySyncScene = true;
-        ShowOnly(nicknamePanel);
+
+        // CHANGED: if we're already connected (e.g. we just came back from
+        // the race scene via RaceResultManager.ReturnToLobby, which leaves
+        // the room but keeps the master-server connection alive), skip the
+        // nickname screen and rejoin the lobby directly instead of forcing
+        // the player through ContinueFromNickname() again.
+        if (PhotonNetwork.IsConnectedAndReady)
+        {
+            ShowOnly(menuPanel);
+            if (!PhotonNetwork.InLobby)
+            {
+                PhotonNetwork.JoinLobby(TypedLobby.Default);
+            }
+        }
+        else
+        {
+            ShowOnly(nicknamePanel);
+        }
     }
 
     private void Update()
